@@ -1,0 +1,11 @@
+{
+    "watch": ["src", "config"], 
+    "ext": "js,json",       
+    "ignore": ["src/test/*"],    
+    "exec": "node app.js",     
+    "delay": "1000",             
+    "env": {
+      "NODE_ENV": "development"  
+    }
+  }
+  
