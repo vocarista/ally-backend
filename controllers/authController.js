@@ -61,13 +61,22 @@ const login = async (req, res) => {
             return res.status(400).json({message: 'Invalid credentials'});
         }
 
+        const rows = await pool.query('SELECT * FROM membership WHERE user_id = $1', [user.rows[0].id]);
+        if(rows.rows.length > 0 && user.rows[0].role !== 'Admin') {
+            user.rows[0].university_id = [];
+            rows.rows.forEach(row => {
+                user.rows[0].university_id.push_back(row.university_id);
+            })
+        }
+
         const accessToken = jwt.sign({email: user.rows[0].email}, SECRET_KEY, {expiresIn: '720h'});
         res.status(200).json({accessToken,
             user: {
                 id: user.rows[0].id,
                 name: user.rows[0].name,
                 email: user.rows[0].email,
-                role: user.rows[0].role
+                role: user.rows[0].role,
+                university_id: user.rows[0].university_id
             }
         });
     } catch (error) {
@@ -90,19 +99,27 @@ const registerStudent = async (req, res) => {
             role,
             university_id,
         } = req.body;
-
+        console.log("University ID: ", university_id);
         const hashedPassword = await bcrypt.hash(password, 10);
-
-        const found = await pool.query('SELECT * FROM Users WHERE email = $1', [email]);
-        if(found.rows.length > 0) {
-            return res.status(400).json({message: 'User already exists'});
+        if(university_id == undefined || university_id.length == 0) {
+            return res.status(400).json({message: 'University ID is required'});
         }
 
-        const user = await pool.query('INSERT INTO Users (name, email, password, role) VALUES ($1, $2, $3, $4) RETURNING *', [name, email, hashedPassword, role]);
-        await pool.query('INSERT INTO Students (user_id)', [user.rows[0].id]);
-        await pool.query('INSERT INTO membership (user_id, university_id) VALUES ($1, $2)', [user.rows[0].id, university_id]);
-
-        res.status(201).send('Registered successfully');
+        const found = await pool.query('SELECT * FROM Users WHERE email = $1', [email]);
+        if(found.rows.length > 0 && found.rows[0].role !== 'Admin') {
+            return res.status(400).json({message: 'User already exists'});
+        } else if(found.rows.length > 0 && found.rows[0].role === 'Admin') {
+            await pool.query('INSERT INTO students (user_id) VALUES ($1)', [found.rows[0].user_id]);
+            await Promise.all(university_id.map(id => pool.query('INSERT INTO membership (user_id, university_id) VALUES ($1, $2)', [found.rows[0].user_id, id])));
+            return res.status(201).send('Registered successfully');
+        } else{
+            await pool.query('INSERT INTO Users (name, email, password, role) VALUES ($1, $2, $3, $4)', [name, email, hashedPassword, role]);
+            const user = await pool.query('SELECT * FROM Users WHERE email = $1', [email]);
+            console.log("User: ", user.rows[0].user_id);
+            await pool.query('INSERT INTO students (user_id) VALUES ($1)', [user.rows[0].user_id]);
+            await Promise.all(university_id.map(id => pool.query('INSERT INTO membership (user_id, university_id) VALUES ($1, $2)', [user.rows[0].user_id, id])));
+            res.status(201).send('Registered successfully');
+        }
     } catch (error) {
         console.error(error.message);
         res.status(500).json({message: 'Internal Server Error'});
@@ -121,15 +138,24 @@ const registerAlumni = async (req, res) => {
         } = req.body;
 
         const hashedPassword = await bcrypt.hash(password, 10);
-
-        const found = await pool.query('SELECT * FROM Users WHERE email = $1', [email]);
-        if(found.rows.length > 0) {
-            return res.status(400).json({message: 'User already exists'});
+        if(university_id.length == 0) {
+            return res.status(400).json({message: 'University ID is required'});
         }
 
-        const user = await pool.query('INSERT INTO Users (name, email, password, role) VALUES ($1, $2, $3, $4) RETURNING *', [name, email, hashedPassword, role]);
-        await pool.query('INSERT INTO Alumni (user_id)', [user.rows[0].id]);
-        await pool.query('INSERT INTO membership (user_id, university_id) VALUES ($1, $2)', [user.rows[0].id, university_id]);
+        const found = await pool.query('SELECT * FROM Users WHERE email = $1', [email]);
+        if(found.rows.length > 0 && found.rows[0].role !== 'Admin') {
+            return res.status(400).json({message: 'User already exists'});
+        } else if(found.rows.length > 0 && found.rows[0].role === 'Admin') {
+            await pool.query('INSERT INTO alumni (user_id) VALUES ($1)', [found.rows[0].user_id]);
+            await Promise.all(university_id.map(id => pool.query('INSERT INTO membership (user_id, university_id) VALUES ($1, $2)', [found.rows[0].user_id, id])));
+            return res.status(201).send('Registered successfully');
+        } else{
+            await pool.query('INSERT INTO Users (name, email, password, role) VALUES ($1, $2, $3, $4)', [name, email, hashedPassword, role]);
+            const user = await pool.query('SELECT * FROM Users WHERE email = $1', [email]);
+            await pool.query('INSERT INTO alumni (user_id) VALUES ($1)', [user.rows[0].user_id]);
+            await Promise.all(university_id.map(id => pool.query('INSERT INTO membership (user_id, university_id) VALUES ($1, $2)', [user.rows[0].user_id, id])));
+            res.status(201).send('Registered successfully');
+        }
 
         res.status(201).send('Registered successfully');
     } catch (error) {
@@ -138,39 +164,10 @@ const registerAlumni = async (req, res) => {
     }
 }
 
-// Register a university
-const registerUniversity = async (req, res) => {
-    try {
-        const {
-            name,
-            district,
-            established_year,
-            type,
-            contact_email,
-            contact_phone,
-            address
-        } = req.body;
-
-        const found = await pool.query('SELECT * FROM Universities WHERE name = $1', [name]);
-        if(found.rows.length > 0) {
-            return res.status(400).json({message: 'University already exists'});
-        }
-
-        await pool.query('INSERT INTO Universities (name, district, established_year, type, contact_email, contact_phone, address, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())', [name, district, established_year, type, contact_email, contact_phone, address]);
-        res.status(201).send('University registered successfully');
-    } catch (error) {
-        console.error(error.message);
-        res.status(500).json({message: 'Internal Server Error'});
-    }
-}
-
-
-
 module.exports = {
     registerAdmin,
     login,
     verify,
     registerStudent,
     registerAlumni,
-    registerUniversity
 }
