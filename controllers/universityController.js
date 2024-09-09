@@ -67,6 +67,21 @@ const getUniversityById = async (req, res) => {
     }
 }   
 
+const getUniversityByUserId = async (req, res) => {
+    try {
+        const user_id = req.params.id;
+        const membership = await pool.query('SELECT * FROM membership WHERE user_id = $1', [user_id]);
+        if(membership.rows.length === 0) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+        const university_id = membership.rows[0].university_id;
+        res.status(200).json(university_id);
+    } catch (error) {
+        console.error(error.message);
+        res.status(500).json({message: 'Internal Server Error'});
+    }
+}
+
 module.exports = {
     getAllUniversities,
     registerUniversity,
