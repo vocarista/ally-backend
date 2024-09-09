@@ -13,19 +13,18 @@ const pool = new Pool({
 });
 
 // creating a new interaction (post)
-const createInteraction = async (req, res) => {
+const createPost = async (req, res) => {
     try {
-        const { type, content } = req.body;
-        const userId = req.user.id;
-        
-        // type and content need to be mentioned
-        if (!type || !content) {
-            return res.status(400).json({ message: 'Type and content are required' });
+        const { user_id, type, content, university_id } = req.body;
+        if(type === 'Comment') {
+            return res.status(400).json({ message: 'Bad Request, endpoint for posts only' });
         }
 
+        const { title, description } = content;
+
         const result = await pool.query(
-            'INSERT INTO interactions (user_id, type, content, timestamp) VALUES ($1, $2, $3, NOW()) RETURNING *', 
-            [userId, type, content]
+            'INSERT INTO interactions (user_id, type, title, content, timestamp, votes, university_id) VALUES ($1, $2, $3, $4, NOW(), $5, $6) RETURNING *', 
+            [user_id, type, title, description, 0, university_id]
         );
 
         res.status(201).json({ message: 'Interaction created successfully', interaction: result.rows[0] });
@@ -35,25 +34,35 @@ const createInteraction = async (req, res) => {
     }
 };
 
-// fetching all interactions visible to the user based on their university
-const getAllInteractions = async (req, res) => {
-    try {
-        const userId = req.user.id;
-
-        // university id of current user
-        const userResult = await pool.query('SELECT university_id FROM Students WHERE user_id = $1', [userId]);
-        if (userResult.rows.length === 0) {
-            return res.status(404).json({ message: 'User not found' });
+const createComment = async (req, res) => {
+    try{
+        const { user_id, type, content, university_id, response_to } = req.body;
+        if(type === 'Post') {
+            return res.status(400).json({ message: 'Bad Request, endpoint for comments only' });
         }
-        const universityId = userResult.rows[0].university_id;
+
+        const { description } = content;
+
+        const result = await pool.query('INSERT INTO interactions (user_id, type, content, timestamp, votes, university_id, response_to) VALUES ($1, $2, $3, NOW(), $4, $5, $6) RETURNING *', [user_id, type, description, 0, university_id, response_to]);
+        res.status(201).json({ message: 'Interaction created successfully', interaction: result.rows[0] });
+    } catch (error) {
+        console.error('Error creating interaction:', error.message);
+        res.status(500).json({ message: 'Internal Server Error' });
+    }
+}
+
+// fetching all interactions visible to the user based on their university
+const getAllPostsCreatedByUserId = async (req, res) => {
+    try {
+        const user_id = req.body.user_id;
 
         // fetching the interactions
         const result = await pool.query(
             `SELECT i.* FROM interactions i
-             JOIN Students s ON i.user_id = s.user_id
-             WHERE s.university_id = $1
+             JOIN membership m ON i.user_id = m.user_id
+             WHERE i.type = 'Post' AND i.user_id = $1
              ORDER BY i.timestamp DESC`,
-            [universityId]
+            [user_id]
         );
 
         res.status(200).json(result.rows);
@@ -63,43 +72,36 @@ const getAllInteractions = async (req, res) => {
     }
 };
 
-// fetch the interaction for a specified user
-const getUserInteractions = async (req, res) => {
+const getAllPostsForUserId = async (req, res) => {
+    try{
+        const user_id = req.params.id
+
+        const memberships = await pool.query('SELECT * FROM membership WHERE user_id = $1', [user_id]);
+        if(memberships.rows.length === 0) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const university_ids = memberships.rows.map(membership => membership.university_id);
+
+        const result = await pool.query('SELECT * FROM interactions WHERE university_id = ANY($1) AND type = $2 ORDER BY timestamp DESC', [university_ids, 'Post']);
+        res.status(200).json(result.rows);
+    } catch(error) {
+        console.error('Error fetching interactions:', error.message);
+        res.status(500).json({ message: 'Internal Server Error' });
+    } 
+}
+
+const getCommentsForPost = async (req, res) => {
     try {
-        const userId = req.params.userId;
+        const { post_id } = req.params;
 
-        // validating user id
-        if (!userId) {
-            return res.status(400).json({ message: 'User ID is required' });
-        }
-
-        // university id of current user
-        const currentUser = await pool.query('SELECT university_id FROM Students WHERE user_id = $1', [req.user.id]);
-        if (currentUser.rows.length === 0) {
-            return res.status(404).json({ message: 'Current user not found' });
-        }
-        const currentUserUniversityId = currentUser.rows[0].university_id;
-
-        // university id of the speciified user
-        const targetUser = await pool.query('SELECT university_id FROM Students WHERE user_id = $1', [userId]);
-        if (targetUser.rows.length === 0) {
-            return res.status(404).json({ message: 'Target user not found' });
-        }
-        const targetUserUniversityId = targetUser.rows[0].university_id;
-
-        // check if both users are from the same university
-        if (currentUserUniversityId !== targetUserUniversityId) {
-            return res.status(403).json({ message: 'Forbidden: Cannot access interactions of users from different universities' });
-        }
-
-        // fetch interactions for the specific user
-        const result = await pool.query('SELECT * FROM interactions WHERE user_id = $1 ORDER BY timestamp DESC', [userId]);
+        const result = await pool.query('SELECT * FROM interactions WHERE response_to = $1', [post_id]);
         res.status(200).json(result.rows);
     } catch (error) {
-        console.error('Error fetching user interactions:', error.message);
+        console.error('Error fetching comments:', error.message);
         res.status(500).json({ message: 'Internal Server Error' });
     }
-};
+}
 
 // updating an interaction
 const updateInteraction = async (req, res) => {
@@ -155,9 +157,11 @@ const deleteInteraction = async (req, res) => {
 };
 
 module.exports = {
-    createInteraction,
-    getAllInteractions,
-    getUserInteractions,
+    createPost,
+    createComment,
+    getAllPostsCreatedByUserId,
+    getAllPostsForUserId,
+    getCommentsForPost,
     updateInteraction,
     deleteInteraction
 };
