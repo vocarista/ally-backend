@@ -156,12 +156,36 @@ const deleteInteraction = async (req, res) => {
     }
 };
 
+const upvote = async (req, res) => {
+    try{
+        const post_id = req.params.id;
+        await pool.query('UPDATE interactions SET votes = votes + 1 WHERE interaction_id = $1', [post_id]);
+        res.status(200).json({ message: 'Upvoted successfully' });
+    } catch(error) {
+        console.error('Error upvoting post:', error.message);
+        res.status(500).json({ message: 'Internal Server Error' });
+    }
+}
+
+const downvote = async (req, res) => {
+    try{
+        const post_id = req.params.id;
+        await pool.query('UPDATE interactions SET votes = votes - 1 WHERE interaction_id = $1', [post_id]);
+        res.status(200).json({ message: 'Downvoted successfully' });
+    } catch(error) {
+        console.error('Error downvoting post:', error.message);
+        res.status(500).json({ message: 'Internal Server Error' });
+    }
+}
+
 module.exports = {
     createPost,
     createComment,
     getAllPostsCreatedByUserId,
     getAllPostsForUserId,
     getCommentsForPost,
+    upvote,
+    downvote,
     updateInteraction,
     deleteInteraction
 };
