@@ -70,7 +70,7 @@ const login = async (req, res) => {
         }
 
         const accessToken = jwt.sign({email: user.rows[0].email}, SECRET_KEY, {expiresIn: '720h'});
-        res.status(200).json({accessToken,
+        res.status(200).json({token: accessToken,
             user: {
                 id: user.rows[0].id,
                 name: user.rows[0].name,
