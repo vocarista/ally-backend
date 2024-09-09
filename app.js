@@ -8,7 +8,7 @@ const universityRoutes = require('./routes/universityRoutes');
 const interactionRoutes = require('./routes/interactionRoutes');
 
 const corsOptions = {
-    origin: ['http://localhost:5173', 'http://localhost:5174',], 
+    origin: ['http://localhost:5173', 'http://localhost:5174', 'https://ally.vocarista.com'], 
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE', 
     allowedHeaders: ['Content-Type', 'Authorization'], 
     credentials: true
